@@ -26,7 +26,7 @@ def generate_agora_token(channel_name, uid):
     current_timestamp = int(time.time())
     privilege_expired_ts = current_timestamp + expiration_time_in_seconds
 
-    token = RtcTokenBuilder.buildTokenWithUid(app_id, app_certificate, channel_name, uid, RtcTokenBuilder.Role_Attendee, privilege_expired_ts)
+    token = RtcTokenBuilder.buildTokenWithUid(app_id, app_certificate, channel_name, uid, RtcTokenBuilder.Role_Subscriber, privilege_expired_ts)
     return token
 
 app = Flask(__name__, static_url_path='/uploads', static_folder='uploads')
