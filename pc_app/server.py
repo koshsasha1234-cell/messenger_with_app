@@ -17,8 +17,8 @@ from agora_token_builder import RtcTokenBuilder
 import time
 
 def generate_agora_token(channel_name, uid):
-    app_id = os.environ.get('AGORA_APP_ID')
-    app_certificate = os.environ.get('AGORA_APP_CERTIFICATE')
+    app_id = "96619c27fbeb4332b25e1413e8f3ce9f"
+    app_certificate = "c2e4b2ce1cc0491fb2719573ceecbeff"
     if not app_id or not app_certificate:
         print("AGORA_APP_ID или AGORA_APP_CERTIFICATE не установлены")
         return None
