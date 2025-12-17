@@ -1,13 +1,7 @@
-Flask
-Flask-SocketIO
-Flask-SQLAlchemy
-werkzeug
-PyJWT
 requests
 python-socketio[client]
 Pillow
-psycopg2-binary
-gunicorn==22.0.0
-agora-token-builder
+PyJWT
 agora-rtc-sdk-python
-eventlet
+pyaudio
+pygame
