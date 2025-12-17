@@ -6,7 +6,5 @@ PyJWT
 requests
 python-socketio[client]
 Pillow
-PyAudio
-pygame
 psycopg2-binary
 gunicorn
