@@ -19,7 +19,7 @@ import pygame
 import requests
 import tempfile
 import shutil
-import agorartc as Rtc
+from agora_rtc_sdk import RtcEngine, RtcEngineEventHandler, RtcEngineContext
 
 if platform == 'android':
     from android.permissions import request_permissions, Permission
@@ -347,7 +347,7 @@ class MessengerApp(App):
 
     # --- Call Methods ---
 
-    class AgoraEventHandler(Rtc.RtcEngineEventHandler):
+    class AgoraEventHandler(RtcEngineEventHandler):
         def __init__(self, app_instance):
             super().__init__()
             self.app = app_instance
@@ -440,8 +440,10 @@ class MessengerApp(App):
                 request_permissions([Permission.RECORD_AUDIO])
             
             self.event_handler = self.AgoraEventHandler(self)
-            self.rtc_engine = Rtc.RtcEngine(self.event_handler)
-            self.rtc_engine.initialize(AGORA_APP_ID, Rtc.RtcEngineContext())
+            self.rtc_engine = RtcEngine.create(self.event_handler)
+            context = RtcEngineContext()
+            context.appId = AGORA_APP_ID
+            self.rtc_engine.initialize(context)
             self.rtc_engine.enableAudio()
             uid = int(jwt.decode(self.token, options={"verify_signature": False})['user_id'])
             self.rtc_engine.joinChannel(token, channel_name, "", uid)

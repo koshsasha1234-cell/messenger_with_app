@@ -9,7 +9,7 @@ import wave
 import pygame
 import tempfile
 import shutil
-import agorartc as Rtc
+from agora_rtc_sdk import RtcEngine, RtcEngineEventHandler, RtcEngineContext
 
 # It's recommended to move App ID to an environment variable
 AGORA_APP_ID = "96619c27fbeb4332b25e1413e8f3ce9f"
@@ -383,7 +383,7 @@ class MessengerApp:
             messagebox.showerror("Ошибка загрузки", response.json().get('message'))
 
     # --- Agora Event Handler ---
-    class AgoraEventHandler(Rtc.RtcEngineEventHandler):
+    class AgoraEventHandler(RtcEngineEventHandler):
         def __init__(self, app_instance):
             super().__init__()
             self.app = app_instance
@@ -478,8 +478,10 @@ class MessengerApp:
     def join_agora_channel(self, channel_name, token):
         try:
             self.event_handler = self.AgoraEventHandler(self)
-            self.rtc_engine = Rtc.RtcEngine(self.event_handler)
-            self.rtc_engine.initialize(AGORA_APP_ID, Rtc.RtcEngineContext())
+            self.rtc_engine = RtcEngine.create(self.event_handler)
+            context = RtcEngineContext()
+            context.appId = AGORA_APP_ID
+            self.rtc_engine.initialize(context)
             self.rtc_engine.enableAudio()
             uid = int(jwt.decode(self.token, options={"verify_signature": False})['user_id'])
             self.rtc_engine.joinChannel(token, channel_name, "", uid)

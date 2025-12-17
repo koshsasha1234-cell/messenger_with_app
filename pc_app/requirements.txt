@@ -8,6 +8,6 @@ python-socketio[client]
 Pillow
 psycopg2-binary
 gunicorn==22.0.0
-agora-token-builder==2.3.0
-agora-python-sdk==3.0.1
+agora-token-builder
+agora-rtc-sdk-python
 eventlet
