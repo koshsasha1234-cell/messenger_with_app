@@ -1,0 +1,6 @@
+kivy
+requests
+python-socketio[client]
+pyjwt
+pyaudio
+pygame

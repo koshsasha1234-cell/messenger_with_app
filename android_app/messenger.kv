@@ -1,0 +1,137 @@
+#:kivy 1.11.1
+
+<LoginScreen>:
+    canvas.before:
+        Color:
+            rgba: 0.17, 0.18, 0.2, 1 # #2c2f33
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    BoxLayout:
+        orientation: 'vertical'
+        padding: 20
+        spacing: 10
+
+        TextInput:
+            id: username
+            hint_text: 'Имя пользователя'
+            multiline: False
+            background_color: (0.26, 0.27, 0.29, 1) # #424549
+            foreground_color: (1, 1, 1, 1)
+
+        TextInput:
+            id: password
+            hint_text: 'Пароль'
+            password: True
+            multiline: False
+            background_color: (0.26, 0.27, 0.29, 1)
+            foreground_color: (1, 1, 1, 1)
+
+        Button:
+            text: 'Вход'
+            on_press: app.login(username.text, password.text)
+            background_color: (0.45, 0.54, 0.85, 1) # #7289da
+
+        Button:
+            text: 'Регистрация'
+            on_press: app.register(username.text, password.text)
+            background_color: (0.45, 0.54, 0.85, 1)
+
+<MessageWidget@BoxLayout>:
+    orientation: 'horizontal'
+    size_hint_y: None
+    height: self.minimum_height
+    is_audio: False
+    message_text: ''
+    audio_url: ''
+    halign: 'left'
+    sender_text: ''
+    message_id: -1
+
+    Label:
+        text: (root.sender_text + ': ' + root.message_text) if not root.is_audio else (root.sender_text + ':')
+        text_size: self.width, None
+        halign: root.halign
+        size_hint_x: 0.7
+
+    Button:
+        text: '▶'
+        on_press: app.play_audio(root.audio_url)
+        size_hint_x: None
+        width: self.texture_size[0] + dp(20) if root.is_audio else 0
+        opacity: 1 if root.is_audio else 0
+        disabled: not root.is_audio
+
+    Button:
+        text: 'X'
+        on_press: app.delete_message(root.message_id)
+        size_hint_x: None
+        width: dp(40) if root.halign == 'right' else 0
+        opacity: 1 if root.halign == 'right' else 0
+        disabled: root.halign != 'right'
+
+<SelectableButton@Button>:
+    index: None
+
+<ChatScreen>:
+    canvas.before:
+        Color:
+            rgba: 0.17, 0.18, 0.2, 1
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    BoxLayout:
+        orientation: 'horizontal'
+
+        # Left panel for chats list
+        BoxLayout:
+            orientation: 'vertical'
+            size_hint_x: 0.3
+
+            Label:
+                text: 'Чаты'
+                size_hint_y: 0.1
+
+            RecycleView:
+                id: chats_rv
+                viewclass: 'SelectableButton'
+                data: [{'text': chat['with_user']['username'], 'index': i, 'on_press': lambda: app.select_chat(i)} for i, chat in enumerate(root.chats_list)]
+                RecycleBoxLayout:
+                    default_size: None, dp(56)
+                    default_size_hint: 1, None
+                    size_hint_y: None
+                    height: self.minimum_height
+                    orientation: 'vertical'
+
+        # Right panel for messages
+        BoxLayout:
+            orientation: 'vertical'
+
+            RecycleView:
+                id: messages_rv
+                viewclass: 'MessageWidget'
+                RecycleBoxLayout:
+                    default_size: None, dp(56)
+                    default_size_hint: 1, None
+                    size_hint_y: None
+                    height: self.minimum_height
+                    orientation: 'vertical'
+
+            BoxLayout:
+                size_hint_y: 0.1
+                TextInput:
+                    id: message_input
+                    hint_text: 'Введите сообщение...'
+                    background_color: (0.26, 0.27, 0.29, 1)
+                    foreground_color: (1, 1, 1, 1)
+                Button:
+                    text: 'Отпр.'
+                    size_hint_x: 0.2
+                    on_press: app.send_message()
+                    background_color: (0.45, 0.54, 0.85, 1)
+                Button:
+                    id: record_button
+                    text: 'Запись'
+                    size_hint_x: 0.2
+                    on_press: app.toggle_recording()
+                    background_color: (0.8, 0.2, 0.2, 1)
