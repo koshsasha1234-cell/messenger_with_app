@@ -9,6 +9,7 @@ import os
 import jwt
 from datetime import datetime, timedelta
 from functools import wraps
+from agora_token_generator import generate_agora_token
 
 app = Flask(__name__, static_url_path='/uploads', static_folder='uploads')
 
@@ -302,6 +303,22 @@ def delete_message(current_user, message_id):
 
     return jsonify({'message': 'Сообщение удалено'}), 200
 
+@app.route('/agora/token', methods=['POST'])
+@token_required
+def get_agora_token(current_user):
+    data = request.get_json()
+    channel_name = data.get('channelName')
+    if not channel_name:
+        return jsonify({'message': 'channelName is required'}), 400
+
+    user_id = current_user.id
+    token = generate_agora_token(channel_name, user_id)
+    
+    if token:
+        return jsonify({'token': token})
+    else:
+        return jsonify({'message': 'Failed to generate Agora token'}), 500
+
 # --- SocketIO Events ---
 
 @socketio.on('connect')
@@ -375,6 +392,48 @@ def handle_send_message(data):
         'is_audio': is_audio
     }
     send(message_to_send, to=room)
+
+@socketio.on('call_user')
+def handle_call_user(data):
+    target_user_id = data.get('targetUserId')
+    channel_name = data.get('channelName')
+    token = data.get('token')
+
+    caller_id = None
+    for user_id, sid in online_users.items():
+        if sid == request.sid:
+            caller_id = user_id
+            break
+    
+    if not caller_id:
+        return
+
+    caller = User.query.get(caller_id)
+    if not caller:
+        return
+
+    target_sid = online_users.get(int(target_user_id))
+    if target_sid:
+        emit('incoming_call', {
+            'callerId': caller_id,
+            'callerUsername': caller.username,
+            'channelName': channel_name,
+            'token': token
+        }, to=target_sid)
+
+@socketio.on('answer_call')
+def handle_answer_call(data):
+    caller_id = data.get('callerId')
+    caller_sid = online_users.get(int(caller_id))
+    if caller_sid:
+        emit('call_answered', {}, to=caller_sid)
+
+@socketio.on('hang_up')
+def handle_hang_up(data):
+    other_user_id = data.get('otherUserId')
+    other_user_sid = online_users.get(int(other_user_id))
+    if other_user_sid:
+        emit('call_ended', {}, to=other_user_sid)
 
 # Создание базы данных и таблиц
 with app.app_context():

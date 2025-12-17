@@ -92,6 +92,22 @@
                 text: 'Чаты'
                 size_hint_y: 0.1
 
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: '48dp'
+                padding: '4dp'
+                spacing: '4dp'
+                TextInput:
+                    id: search_input
+                    hint_text: 'Поиск...'
+                    multiline: False
+                    size_hint_x: 0.7
+                Button:
+                    text: 'Найти'
+                    size_hint_x: 0.3
+                    on_press: app.search_friend()
+
             RecycleView:
                 id: chats_rv
                 viewclass: 'SelectableButton'
@@ -122,16 +138,18 @@
                 TextInput:
                     id: message_input
                     hint_text: 'Введите сообщение...'
-                    background_color: (0.26, 0.27, 0.29, 1)
-                    foreground_color: (1, 1, 1, 1)
+                    size_hint_x: 0.5
                 Button:
-                    text: 'Отпр.'
-                    size_hint_x: 0.2
+                    text: 'Отправить'
                     on_press: app.send_message()
-                    background_color: (0.45, 0.54, 0.85, 1)
+                    size_hint_x: 0.17
                 Button:
                     id: record_button
                     text: 'Запись'
-                    size_hint_x: 0.2
                     on_press: app.toggle_recording()
-                    background_color: (0.8, 0.2, 0.2, 1)
+                    size_hint_x: 0.17
+                Button:
+                    id: call_button
+                    text: 'Звонок'
+                    on_press: app.start_call()
+                    size_hint_x: 0.16

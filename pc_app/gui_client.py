@@ -2,15 +2,19 @@ import tkinter as tk
 from tkinter import scrolledtext, simpledialog, messagebox
 import requests
 import socketio
-import jwt # For decoding token to get user_id
+import jwt
 import threading
 import pyaudio
 import wave
 import pygame
 import tempfile
 import shutil
+import agorartc as Rtc
 
-BASE_URL = 'http://127.0.0.1:5000'
+# It's recommended to move App ID to an environment variable
+AGORA_APP_ID = "96619c27fbeb4332b25e1413e8f3ce9f"
+
+BASE_URL = 'https://messenger-with-app.onrender.com'
 
 class MessengerApp:
     def __init__(self, root):
@@ -28,6 +32,12 @@ class MessengerApp:
         self.sio = socketio.Client()
         self.message_widgets = {} # {message_id: widget}
         pygame.mixer.init() # Initialize pygame mixer for playback
+
+        # Call state variables
+        self.rtc_engine = None
+        self.in_call = False
+        self.current_call_info = {}
+        self.incoming_call_window = None
 
         self.setup_login_window()
         self.setup_socketio_handlers()
@@ -110,6 +120,10 @@ class MessengerApp:
         self.send_button.pack(side=tk.RIGHT)
         self.record_button = tk.Button(message_frame, text="Запись", command=self.toggle_recording)
         self.record_button.pack(side=tk.RIGHT, padx=5)
+
+        self.call_button = tk.Button(message_frame, text="📞", command=self.start_call, bg=self.PRIMARY_COLOR, fg=self.TEXT_COLOR, relief=tk.FLAT)
+        self.call_button.pack(side=tk.RIGHT)
+
         self.is_recording = False
         self.audio_frames = []
 
@@ -229,8 +243,6 @@ class MessengerApp:
         @self.sio.on('message')
         def on_message(data):
             if isinstance(data, dict) and hasattr(self, 'selected_chat'):
-                # Check if the message belongs to the currently selected chat
-                # This simple check might need improvement based on what server sends
                 self.chat_window.config(state='normal')
                 tag = 'sent' if data['sender'] == self.current_username else 'received'
                 if data.get('is_audio'):
@@ -239,6 +251,18 @@ class MessengerApp:
                     self.chat_window.insert(tk.END, f"{data['sender']}: {data['content']}\n", tag)
                 self.chat_window.config(state='disabled')
                 self.chat_window.yview(tk.END)
+
+        @self.sio.on('incoming_call')
+        def on_incoming_call(data):
+            self.root.after(0, self.show_incoming_call_popup, data)
+
+        @self.sio.on('call_answered')
+        def on_call_answered(data):
+            self.root.after(0, self.handle_call_answered)
+
+        @self.sio.on('call_ended')
+        def on_call_ended(data):
+            self.root.after(0, self.hang_up)
 
 
     def add_text_message_widget(self, msg, tag):
@@ -357,6 +381,137 @@ class MessengerApp:
                 self.sio.emit('send_message', {'room': chat_id, 'content': file_path, 'token': self.token, 'is_audio': True})
         else:
             messagebox.showerror("Ошибка загрузки", response.json().get('message'))
+
+    # --- Agora Event Handler ---
+    class AgoraEventHandler(Rtc.RtcEngineEventHandler):
+        def __init__(self, app_instance):
+            super().__init__()
+            self.app = app_instance
+
+        def onJoinChannelSuccess(self, connection, elapsed):
+            print(f"Successfully joined channel {connection.channelId}")
+
+        def onUserJoined(self, connection, remoteUid, elapsed):
+            print(f"Remote user {remoteUid} joined")
+
+        def onUserOffline(self, connection, remoteUid, reason):
+            print(f"Remote user {remoteUid} left the channel")
+            self.app.root.after(0, self.app.hang_up)
+
+    # --- Call Methods ---
+    def start_call(self):
+        if not hasattr(self, 'selected_chat'):
+            messagebox.showinfo("Звонок", "Выберите чат, чтобы позвонить.")
+            return
+        if self.in_call:
+            self.hang_up()
+            return
+
+        target_user = self.selected_chat['with_user']
+        channel_name = f"chat_{self.selected_chat['chat_id']}"
+
+        headers = {'x-access-token': self.token}
+        response = requests.post(f'{BASE_URL}/agora/token', json={'channelName': channel_name}, headers=headers)
+
+        if response.status_code != 200:
+            messagebox.showerror("Ошибка звонка", f"Не удалось получить токен: {response.json().get('message')}")
+            return
+
+        agora_token = response.json().get('token')
+
+        self.sio.emit('call_user', {
+            'targetUserId': target_user['id'],
+            'channelName': channel_name,
+            'token': agora_token
+        })
+
+        self.join_agora_channel(channel_name, agora_token)
+        self.in_call = True
+        self.call_button.config(text="❌")
+        self.current_call_info = {'otherUserId': target_user['id']}
+
+    def answer_call(self, data):
+        if self.incoming_call_window:
+            self.incoming_call_window.destroy()
+            self.incoming_call_window = None
+
+        channel_name = data['channelName']
+        token = data['token']
+        caller_id = data['callerId']
+
+        self.join_agora_channel(channel_name, token)
+        self.sio.emit('answer_call', {'callerId': caller_id})
+
+        self.in_call = True
+        self.call_button.config(text="❌")
+        self.current_call_info = {'otherUserId': caller_id}
+
+    def hang_up(self):
+        if not self.in_call:
+            return
+
+        if self.current_call_info.get('otherUserId'):
+            self.sio.emit('hang_up', {'otherUserId': self.current_call_info['otherUserId']})
+
+        if self.rtc_engine:
+            self.rtc_engine.leaveChannel()
+            self.rtc_engine.release()
+            self.rtc_engine = None
+
+        if self.incoming_call_window:
+            self.incoming_call_window.destroy()
+            self.incoming_call_window = None
+
+        self.call_button.config(text="📞")
+        self.in_call = False
+        self.current_call_info = {}
+
+    def decline_call(self, data):
+        if self.incoming_call_window:
+            self.incoming_call_window.destroy()
+            self.incoming_call_window = None
+        # Here you could emit a 'call_declined' event if you want the caller to know.
+
+    def handle_call_answered(self):
+        messagebox.showinfo("Звонок", "Пользователь ответил на ваш звонок.")
+
+    def join_agora_channel(self, channel_name, token):
+        try:
+            self.event_handler = self.AgoraEventHandler(self)
+            self.rtc_engine = Rtc.RtcEngine(self.event_handler)
+            self.rtc_engine.initialize(AGORA_APP_ID, Rtc.RtcEngineContext())
+            self.rtc_engine.enableAudio()
+            uid = int(jwt.decode(self.token, options={"verify_signature": False})['user_id'])
+            self.rtc_engine.joinChannel(token, channel_name, "", uid)
+        except Exception as e:
+            messagebox.showerror("Agora Error", f"Ошибка инициализации Agora: {e}")
+            if self.in_call:
+                self.hang_up()
+
+    def show_incoming_call_popup(self, data):
+        if self.incoming_call_window or self.in_call:
+            return
+
+        self.incoming_call_window = tk.Toplevel(self.root)
+        self.incoming_call_window.title("Входящий звонок")
+        self.incoming_call_window.geometry("300x100")
+        self.incoming_call_window.configure(bg=self.BG_COLOR)
+        self.incoming_call_window.attributes("-topmost", True)
+
+        caller_username = data.get('callerUsername', 'Unknown')
+        label = tk.Label(self.incoming_call_window, text=f"Звонок от {caller_username}", bg=self.BG_COLOR, fg=self.TEXT_COLOR)
+        label.pack(pady=10)
+
+        button_frame = tk.Frame(self.incoming_call_window, bg=self.BG_COLOR)
+        button_frame.pack(pady=5)
+
+        answer_button = tk.Button(button_frame, text="Ответить", command=lambda: self.answer_call(data), bg='green', fg=self.TEXT_COLOR)
+        answer_button.pack(side=tk.LEFT, padx=10)
+
+        decline_button = tk.Button(button_frame, text="Отклонить", command=lambda: self.decline_call(data), bg='red', fg=self.TEXT_COLOR)
+        decline_button.pack(side=tk.RIGHT, padx=10)
+
+        self.incoming_call_window.protocol("WM_DELETE_WINDOW", lambda: self.decline_call(data))
 
 if __name__ == '__main__':
     root = tk.Tk()
