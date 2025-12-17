@@ -9,7 +9,7 @@ import os
 import jwt
 from datetime import datetime, timedelta
 from functools import wraps
-from agora_token_generator import generate_agora_token
+from .agora_token_generator import generate_agora_token
 
 app = Flask(__name__, static_url_path='/uploads', static_folder='uploads')
 
