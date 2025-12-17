@@ -13,7 +13,21 @@ import os
 import jwt
 from datetime import datetime, timedelta
 from functools import wraps
-from pc_app.agora_token_generator import generate_agora_token
+from agora_token_builder import RtcTokenBuilder
+import time
+
+def generate_agora_token(channel_name, uid):
+    app_id = os.environ.get('AGORA_APP_ID')
+    app_certificate = os.environ.get('AGORA_APP_CERTIFICATE')
+    if not app_id or not app_certificate:
+        print("AGORA_APP_ID или AGORA_APP_CERTIFICATE не установлены")
+        return None
+    expiration_time_in_seconds = 3600
+    current_timestamp = int(time.time())
+    privilege_expired_ts = current_timestamp + expiration_time_in_seconds
+
+    token = RtcTokenBuilder.buildTokenWithUid(app_id, app_certificate, channel_name, uid, RtcTokenBuilder.Role_Attendee, privilege_expired_ts)
+    return token
 
 app = Flask(__name__, static_url_path='/uploads', static_folder='uploads')
 
