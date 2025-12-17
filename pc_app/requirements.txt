@@ -2,6 +2,6 @@ requests
 python-socketio[client]
 Pillow
 PyJWT
-agora-rtc-sdk-python
+agora-python-sdk
 pyaudio
 pygame

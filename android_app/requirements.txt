@@ -4,5 +4,4 @@ python-socketio[client]
 pyjwt
 pyaudio
 pygame
-agora-token-builder
-agora-rtc-sdk-python
+agora-python-sdk
