@@ -9,7 +9,7 @@ import wave
 import pygame
 import tempfile
 import shutil
-from agora_rtc_sdk import RtcEngine, RtcEngineEventHandler, RtcEngineContext
+import agorartc
 
 # It's recommended to move App ID to an environment variable
 AGORA_APP_ID = "96619c27fbeb4332b25e1413e8f3ce9f"
@@ -383,7 +383,7 @@ class MessengerApp:
             messagebox.showerror("Ошибка загрузки", response.json().get('message'))
 
     # --- Agora Event Handler ---
-    class AgoraEventHandler(RtcEngineEventHandler):
+    class AgoraEventHandler(agorartc.RtcEngineEventHandlerBase):
         def __init__(self, app_instance):
             super().__init__()
             self.app = app_instance
@@ -411,7 +411,7 @@ class MessengerApp:
         channel_name = f"chat_{self.selected_chat['chat_id']}"
 
         headers = {'x-access-token': self.token}
-        response = requests.post(f'{BASE_URL}/agora/token', json={'channelName': channel_name}, headers=headers)
+        response = requests.post(f'{BASE_URL}/agora/token', json={'channelName': channel_name, 'role': 1}, headers=headers)
 
         if response.status_code != 200:
             messagebox.showerror("Ошибка звонка", f"Не удалось получить токен: {response.json().get('message')}")
@@ -477,14 +477,20 @@ class MessengerApp:
 
     def join_agora_channel(self, channel_name, token):
         try:
+            self.rtc_engine = agorartc.createRtcEngineBridge()
             self.event_handler = self.AgoraEventHandler(self)
-            self.rtc_engine = RtcEngine.create(self.event_handler)
-            context = RtcEngineContext()
-            context.appId = AGORA_APP_ID
-            self.rtc_engine.initialize(context)
+            self.rtc_engine.initEventHandler(self.event_handler)
+
+            # Initialize
+            if self.rtc_engine.initialize(AGORA_APP_ID, None, agorartc.AREA_CODE_GLOB & 0xFFFFFFFF) != 0:
+                raise Exception("Не удалось инициализировать RTC Engine")
+
             self.rtc_engine.enableAudio()
             uid = int(jwt.decode(self.token, options={"verify_signature": False})['user_id'])
-            self.rtc_engine.joinChannel(token, channel_name, "", uid)
+            res = self.rtc_engine.joinChannel(token, channel_name, "", uid)
+            if res != 0:
+                raise Exception(f"Ошибка подключения к каналу Agora: {res}")
+
         except Exception as e:
             messagebox.showerror("Agora Error", f"Ошибка инициализации Agora: {e}")
             if self.in_call:

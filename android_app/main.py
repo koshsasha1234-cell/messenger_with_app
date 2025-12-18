@@ -19,7 +19,7 @@ import pygame
 import requests
 import tempfile
 import shutil
-from agora_rtc_sdk import RtcEngine, RtcEngineEventHandler, RtcEngineContext
+import agorartc
 
 if platform == 'android':
     from android.permissions import request_permissions, Permission
@@ -133,9 +133,9 @@ class MessengerApp(App):
                     pygame.mixer.music.load(tmp_filename)
                     pygame.mixer.music.play()
                 else:
-                    self.show_popup("Ошибка", "Не удалось загрузить аудиофайл.")
+                    self._show_popup_threadsafe("Ошибка", "Не удалось загрузить аудиофайл.")
             except Exception as e:
-                self.show_popup("Ошибка воспроизведения", str(e))
+                self._show_popup_threadsafe("Ошибка воспроизведения", str(e))
         threading.Thread(target=_play).start()
 
     @mainthread
@@ -347,7 +347,7 @@ class MessengerApp(App):
 
     # --- Call Methods ---
 
-    class AgoraEventHandler(RtcEngineEventHandler):
+    class AgoraEventHandler(agorartc.RtcEngineEventHandlerBase):
         def __init__(self, app_instance):
             super().__init__()
             self.app = app_instance
@@ -391,7 +391,7 @@ class MessengerApp(App):
             self.sm.get_screen('chat').ids.call_button.text = "Завершить"
             self.current_call_info = {'otherUserId': target_user['id']}
 
-        self._api_request('/agora/token', method='POST', body={'channelName': channel_name}, on_success=on_token_success)
+        self._api_request('/agora/token', method='POST', body={'channelName': channel_name, 'role': 1}, on_success=on_token_success)
 
     def answer_call(self, data):
         if self.incoming_call_popup:
@@ -438,15 +438,23 @@ class MessengerApp(App):
         try:
             if platform == 'android':
                 request_permissions([Permission.RECORD_AUDIO])
-            
+
+            self.rtc_engine = agorartc.createRtcEngineBridge()
             self.event_handler = self.AgoraEventHandler(self)
-            self.rtc_engine = RtcEngine.create(self.event_handler)
-            context = RtcEngineContext()
-            context.appId = AGORA_APP_ID
-            self.rtc_engine.initialize(context)
+            self.rtc_engine.initEventHandler(self.event_handler)
+
+            if self.rtc_engine.initialize(AGORA_APP_ID, None, agorartc.AREA_CODE_GLOB & 0xFFFFFFFF) != 0:
+                self.show_popup("Agora Error", "Не удалось инициализировать RTC Engine")
+                self.hang_up()
+                return
+
             self.rtc_engine.enableAudio()
             uid = int(jwt.decode(self.token, options={"verify_signature": False})['user_id'])
-            self.rtc_engine.joinChannel(token, channel_name, "", uid)
+            res = self.rtc_engine.joinChannel(token, channel_name, "", uid)
+            if res != 0:
+                self.show_popup("Agora Error", f"Ошибка подключения к каналу: {res}")
+                self.hang_up()
+
         except Exception as e:
             self.show_popup("Agora Error", f"Ошибка инициализации Agora: {e}")
             if self.in_call:

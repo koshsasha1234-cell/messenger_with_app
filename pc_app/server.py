@@ -16,7 +16,7 @@ from functools import wraps
 from agora_token_builder import RtcTokenBuilder
 import time
 
-def generate_agora_token(channel_name, uid):
+def generate_agora_token(channel_name, uid, role=RtcTokenBuilder.Role_Publisher):
     app_id = "96619c27fbeb4332b25e1413e8f3ce9f"
     app_certificate = "c2e4b2ce1cc0491fb2719573ceecbeff"
     if not app_id or not app_certificate:
@@ -26,7 +26,7 @@ def generate_agora_token(channel_name, uid):
     current_timestamp = int(time.time())
     privilege_expired_ts = current_timestamp + expiration_time_in_seconds
 
-    token = RtcTokenBuilder.buildTokenWithUid(app_id, app_certificate, channel_name, uid, RtcTokenBuilder.Role_Subscriber, privilege_expired_ts)
+    token = RtcTokenBuilder.buildTokenWithUid(app_id, app_certificate, channel_name, uid, role, privilege_expired_ts)
     return token
 
 app = Flask(__name__, static_url_path='/uploads', static_folder='uploads')
@@ -326,11 +326,12 @@ def delete_message(current_user, message_id):
 def get_agora_token(current_user):
     data = request.get_json()
     channel_name = data.get('channelName')
+    role = data.get('role', RtcTokenBuilder.Role_Publisher) # Default to publisher if not provided
     if not channel_name:
         return jsonify({'message': 'channelName is required'}), 400
 
     user_id = current_user.id
-    token = generate_agora_token(channel_name, user_id)
+    token = generate_agora_token(channel_name, user_id, role)
     
     if token:
         return jsonify({'token': token})
