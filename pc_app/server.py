@@ -456,10 +456,150 @@ def handle_hang_up(data):
     if other_user_sid:
         emit('call_ended', {}, to=other_user_sid)
 
-# Создание базы данных и таблиц
-with app.app_context():
-    db.create_all()
+# Call related SocketIO events
+active_calls = {} # {caller_id: {callee_id: sid, channel_name: channel, token: token}}
+
+@socketio.on('call_request')
+def handle_call_request(data):
+    token = data.get('token')
+    callee_id = data.get('callee_id')
+    channel_name = data.get('channelName')
+
+    if not token or not callee_id or not channel_name:
+        emit('call_error', {'message': 'Missing call data'})
+        return
+
+    try:
+        token_data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+        caller_id = token_data['user_id']
+    except:
+        emit('call_error', {'message': 'Invalid token'})
+        return
+
+    if callee_id in online_users:
+        callee_sid = online_users[callee_id]
+        caller_user = User.query.get(caller_id)
+        if caller_user:
+            # Generate Agora token for the caller
+            caller_agora_token = generate_agora_token(channel_name, caller_id)
+            if not caller_agora_token:
+                emit('call_error', {'message': 'Failed to generate Agora token for caller'})
+                return
+
+            # Generate Agora token for the callee
+            callee_agora_token = generate_agora_token(channel_name, callee_id)
+            if not callee_agora_token:
+                emit('call_error', {'message': 'Failed to generate Agora token for callee'})
+                return
+
+            active_calls[caller_id] = {
+                'callee_id': callee_id,
+                'channel_name': channel_name,
+                'caller_token': caller_agora_token,
+                'callee_token': callee_agora_token
+            }
+
+            emit('incoming_call', {
+                'caller_id': caller_id,
+                'caller_username': caller_user.username,
+                'channel_name': channel_name,
+                'token': callee_agora_token # Callee receives their token
+            }, to=callee_sid)
+            emit('call_initiated', {
+                'callee_id': callee_id,
+                'channel_name': channel_name,
+                'token': caller_agora_token # Caller receives their token
+            })
+        else:
+            emit('call_error', {'message': 'Caller user not found'})
+    else:
+        emit('call_error', {'message': 'Callee is offline'})
+
+@socketio.on('call_accepted')
+def handle_call_accepted(data):
+    token = data.get('token')
+    caller_id = data.get('caller_id')
+    channel_name = data.get('channelName')
+
+    if not token or not caller_id or not channel_name:
+        emit('call_error', {'message': 'Missing call data'})
+        return
+
+    try:
+        token_data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+        callee_id = token_data['user_id']
+    except:
+        emit('call_error', {'message': 'Invalid token'})
+        return
+
+    if caller_id in active_calls and active_calls[caller_id]['callee_id'] == callee_id:
+        caller_sid = online_users.get(caller_id)
+        if caller_sid:
+            emit('call_answered', {
+                'callee_id': callee_id,
+                'channel_name': channel_name
+            }, to=caller_sid)
+    else:
+        emit('call_error', {'message': 'No active call from this caller'})
+
+@socketio.on('call_declined')
+def handle_call_declined(data):
+    token = data.get('token')
+    caller_id = data.get('caller_id')
+
+    if not token or not caller_id:
+        emit('call_error', {'message': 'Missing call data'})
+        return
+
+    try:
+        token_data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+        callee_id = token_data['user_id']
+    except:
+        emit('call_error', {'message': 'Invalid token'})
+        return
+
+    if caller_id in active_calls and active_calls[caller_id]['callee_id'] == callee_id:
+        caller_sid = online_users.get(caller_id)
+        if caller_sid:
+            emit('call_rejected', {'callee_id': callee_id}, to=caller_sid)
+        del active_calls[caller_id]
+    else:
+        emit('call_error', {'message': 'No active call from this caller'})
+
+@socketio.on('call_ended')
+def handle_call_ended(data):
+    token = data.get('token')
+    other_user_id = data.get('other_user_id') # The ID of the person you were calling or who called you
+
+    if not token or not other_user_id:
+        emit('call_error', {'message': 'Missing call data'})
+        return
+
+    try:
+        token_data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+        current_user_id = token_data['user_id']
+    except:
+        emit('call_error', {'message': 'Invalid token'})
+        return
+
+    # Determine if current user was the caller or callee in the active_calls dict
+    if current_user_id in active_calls and active_calls[current_user_id]['callee_id'] == other_user_id:
+        # Current user was the caller
+        callee_sid = online_users.get(other_user_id)
+        if callee_sid:
+            emit('call_hangup', {'caller_id': current_user_id}, to=callee_sid)
+        del active_calls[current_user_id]
+    elif other_user_id in active_calls and active_calls[other_user_id]['callee_id'] == current_user_id:
+        # Current user was the callee, and the other_user_id was the caller
+        caller_sid = online_users.get(other_user_id)
+        if caller_sid:
+            emit('call_hangup', {'callee_id': current_user_id}, to=caller_sid)
+        del active_calls[other_user_id]
+    else:
+        emit('call_error', {'message': 'No active call with this user'})
+
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True)
-
+    with app.app_context():
+        db.create_all()
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True)

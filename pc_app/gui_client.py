@@ -263,16 +263,45 @@ class MessengerApp:
 
         @self.sio.on('incoming_call')
         def on_incoming_call(data):
+            self.current_call_info = {
+                'otherUserId': data.get('callerId'),
+                'channelName': data.get('channelName'),
+                'token': data.get('token')
+            }
             self.root.after(0, self.show_incoming_call_popup, data)
+
+        @self.sio.on('call_initiated')
+        def on_call_initiated(data):
+            self.current_call_info = {
+                'otherUserId': data.get('targetUserId'),
+                'channelName': data.get('channelName'),
+                'token': data.get('token')
+            }
+            messagebox.showinfo("Звонок", f"Звонок {data.get('targetUsername')} инициирован.")
+            self.root.after(0, self.handle_call_answered, data) # Directly join channel after initiation
 
         @self.sio.on('call_answered')
         def on_call_answered(data):
-            self.root.after(0, self.handle_call_answered)
+            self.root.after(0, self.handle_call_answered, data)
+
+        @self.sio.on('call_rejected')
+        def on_call_rejected(data):
+            self.root.after(0, lambda: messagebox.showinfo("Звонок", f"Звонок отклонен {data.get('rejectorUsername')}."))
+            self.root.after(0, self.hang_up)
 
         @self.sio.on('call_ended')
         def on_call_ended(data):
             self.root.after(0, self.hang_up)
 
+        @self.sio.on('call_hangup')
+        def on_call_hangup(data):
+            self.root.after(0, lambda: messagebox.showinfo("Звонок", "Звонок завершен другой стороной."))
+            self.root.after(0, self.hang_up)
+
+        @self.sio.on('call_error')
+        def on_call_error(data):
+            self.root.after(0, lambda: messagebox.showerror("Ошибка звонка", data.get('message', "Произошла ошибка во время звонка.")))
+            self.root.after(0, self.hang_up)
 
     def add_text_message_widget(self, msg, tag):
         self.chat_window.config(state='normal')
@@ -429,25 +458,11 @@ class MessengerApp:
         target_user = self.selected_chat['with_user']
         channel_name = f"chat_{self.selected_chat['chat_id']}"
 
-        headers = {'x-access-token': self.token}
-        response = requests.post(f'{BASE_URL}/agora/token', json={'channelName': channel_name, 'role': 1}, headers=headers)
-
-        if response.status_code != 200:
-            messagebox.showerror("Ошибка звонка", f"Не удалось получить токен: {response.json().get('message')}")
-            return
-
-        agora_token = response.json().get('token')
-
-        self.sio.emit('call_user', {
+        self.sio.emit('call_request', {
             'targetUserId': target_user['id'],
-            'channelName': channel_name,
-            'token': agora_token
+            'channelName': channel_name
         })
-
-        self.join_agora_channel(channel_name, agora_token)
-        self.in_call = True
-        self.call_button.config(text="❌")
-        self.current_call_info = {'otherUserId': target_user['id']}
+        messagebox.showinfo("Звонок", f"Вызов {target_user['username']}...")
 
     def answer_call(self, data):
         if self.incoming_call_window:
@@ -463,22 +478,23 @@ class MessengerApp:
                 return
 
         channel_name = data['channelName']
-        token = data['token']
         caller_id = data['callerId']
 
-        self.join_agora_channel(channel_name, token)
-        self.sio.emit('answer_call', {'callerId': caller_id})
+        self.sio.emit('call_accepted', {'callerId': caller_id, 'channelName': channel_name})
 
         self.in_call = True
         self.call_button.config(text="❌")
-        self.current_call_info = {'otherUserId': caller_id}
+        self.current_call_info = {'otherUserId': caller_id, 'channelName': channel_name}
 
     def hang_up(self):
         if not self.in_call:
             return
 
-        if self.current_call_info.get('otherUserId'):
-            self.sio.emit('hang_up', {'otherUserId': self.current_call_info['otherUserId']})
+        if self.current_call_info.get('otherUserId') and self.current_call_info.get('channelName'):
+            self.sio.emit('call_ended', {
+                'otherUserId': self.current_call_info['otherUserId'],
+                'channelName': self.current_call_info['channelName']
+            })
 
         if self.rtc_engine:
             self.rtc_engine.leaveChannel()
@@ -497,10 +513,37 @@ class MessengerApp:
         if self.incoming_call_window:
             self.incoming_call_window.destroy()
             self.incoming_call_window = None
-        # Here you could emit a 'call_declined' event if you want the caller to know.
+        
+        # Emit call_declined event to the server
+        if 'callerId' in data and 'channelName' in data:
+            self.sio.emit('call_declined', {'callerId': data['callerId'], 'channelName': data['channelName']})
+        
+        self.call_button.config(text="📞")
+        self.in_call = False
+        self.current_call_info = {}
 
-    def handle_call_answered(self):
-        messagebox.showinfo("Звонок", "Пользователь ответил на ваш звонок.")
+    def handle_call_answered(self, data):
+        channel_name = data.get('channelName')
+        token = data.get('token')
+        other_user_id = data.get('otherUserId')
+
+        if not channel_name or not token or not other_user_id:
+            messagebox.showerror("Ошибка звонка", "Отсутствуют данные канала или токена для присоединения к звонку.")
+            return
+
+        if not hasattr(self, 'rtc_engine') or self.rtc_engine is None:
+            self.rtc_engine = agorartc.createRtcEngineBridge()
+            self.event_handler = self.AgoraEventHandler(self)
+            self.rtc_engine.initEventHandler(self.event_handler)
+            if self.rtc_engine.initialize(AGORA_APP_ID, None, agorartc.AREA_CODE_GLOB & 0xFFFFFFFF) != 0:
+                messagebox.showerror("Ошибка Agora", "Не удалось инициализировать Agora RTC Engine.")
+                return
+
+        self.join_agora_channel(channel_name, token)
+        self.in_call = True
+        self.call_button.config(text="❌")
+        self.current_call_info = {'otherUserId': other_user_id, 'channelName': channel_name}
+        messagebox.showinfo("Звонок", "Вы успешно присоединились к звонку.")
 
     def join_agora_channel(self, channel_name, token):
         try:

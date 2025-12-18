@@ -97,6 +97,25 @@ class MessengerApp(App):
             self.show_popup('Регистрация', result.get('message', 'Успешно'))
         self._api_request('/register', method='POST', body={'username': username, 'password': password}, on_success=on_register_success)
 
+    def on_chat_screen_kv_post(self):
+        # This method is called after the KV file for ChatScreen is processed
+        # and its ids are available.
+        chat_screen = self.sm.get_screen('chat')
+        if chat_screen and hasattr(chat_screen, 'chats_list'):
+            self.update_chat_list_display(chat_screen.chats_list)
+
+    def update_chat_list_display(self, chats, online_ids=None):
+        chat_screen = self.sm.get_screen('chat')
+        if chat_screen:
+            chat_screen.chats_list = chats
+            data = []
+            for i, chat in enumerate(chats):
+                user = chat['with_user']
+                status = " (в сети)" if online_ids and user['id'] in online_ids else ""
+                data.append({'text': f"{user['username']}{status}", 'on_press': lambda i=i: self.select_chat(i)})
+            chat_screen.ids.chats_rv.data = data
+            chat_screen.ids.chats_rv.refresh_from_data()
+
     def load_chats(self):
         def on_online_users_loaded(online_ids):
             def on_chats_loaded(chats):
@@ -105,15 +124,8 @@ class MessengerApp(App):
                     if chat_screen:
                         print(f"chat_screen: {chat_screen}")
                         print(f"chat_screen.ids: {chat_screen.ids}")
-                        self.sm.current = 'chat' # Ensure chat screen is current to populate ids
-                        chat_screen.chats_list = chats
-                        data = []
-                        for i, chat in enumerate(chats):
-                            user = chat['with_user']
-                            status = " (в сети)" if user['id'] in online_ids else ""
-                            data.append({'text': f"{user['username']}{status}", 'on_press': lambda i=i: self.select_chat(i)})
-                        chat_screen.ids.chats_rv.data = data
-                        chat_screen.ids.chats_rv.refresh_from_data()
+                        # self.sm.current = 'chat' # This line is moved to on_kv_post in messenger.kv
+                        self.update_chat_list_display(chats, online_ids)
                     else:
                         print("Error: 'chat' screen not found.")
                 except Exception as e:
@@ -192,15 +204,41 @@ class MessengerApp(App):
         def on_incoming_call(data):
             self.show_incoming_call_popup(data)
 
+        @self.sio.on('call_initiated')
+        @mainthread
+        def on_call_initiated(data):
+            print(f"Call initiated with channel: {data.get('channelName')}")
+            self.current_call_info = data
+            self.in_call = True
+            # Optionally update UI to show call is ringing
+
         @self.sio.on('call_answered')
         @mainthread
         def on_call_answered(data):
-            self.show_popup("Звонок", "Пользователь ответил на ваш звонок.")
+            print("Call answered by recipient.")
+            self.handle_call_answered(data)
 
-        @self.sio.on('call_ended')
+        @self.sio.on('call_rejected')
         @mainthread
-        def on_call_ended(data):
+        def on_call_rejected(data):
+            print("Call rejected by recipient.")
             self.hang_up()
+            self.show_popup("Вызов отклонен", "Ваш вызов был отклонен.")
+
+        @self.sio.on('call_hangup')
+        @mainthread
+        def on_call_hangup(data):
+            print("Call hung up by other party.")
+            self.hang_up()
+            self.show_popup("Вызов завершен", "Вызов был завершен другой стороной.")
+
+        @self.sio.on('call_error')
+        @mainthread
+        def on_call_error(data):
+            error_message = data.get('message', 'Неизвестная ошибка вызова')
+            print(f"Call error: {error_message}")
+            self.hang_up()
+            self.show_popup("Ошибка вызова", error_message)
 
         @self.sio.on('message')
         def on_message(data):
@@ -377,46 +415,31 @@ class MessengerApp(App):
 
     def start_call(self):
         if self.in_call:
-            self.hang_up()
+            self.show_popup("Звонок", "Вы уже в процессе звонка.")
             return
 
         if not self.selected_chat:
             self.show_popup("Звонок", "Выберите чат для звонка.")
             return
 
-        target_user = self.selected_chat['with_user']
+        target_user_id = self.selected_chat['with_user']['id']
         channel_name = f"chat_{self.selected_chat['chat_id']}"
 
-        def on_token_success(result):
-            agora_token = result.get('token')
-            if not agora_token:
-                self.show_popup("Ошибка звонка", "Не удалось получить токен.")
-                return
-
-            self.sio.emit('call_user', {
-                'targetUserId': target_user['id'],
-                'channelName': channel_name,
-                'token': agora_token
-            })
-
-            self.join_agora_channel(channel_name, agora_token)
-            self.in_call = True
-            self.sm.get_screen('chat').ids.call_button.text = "Завершить"
-            self.current_call_info = {'otherUserId': target_user['id']}
-
-        self._api_request('/agora/token', method='POST', body={'channelName': channel_name, 'role': 1}, on_success=on_token_success)
+        self.sio.emit('call_request', {
+            'targetUserId': target_user_id,
+            'channelName': channel_name
+        })
+        self.show_popup("Звонок", f"Вызов {self.selected_chat['with_user']['username']}...")
 
     def answer_call(self, data):
         if self.incoming_call_popup:
             self.incoming_call_popup.dismiss()
             self.incoming_call_popup = None
-        
+
         channel_name = data['channelName']
-        token = data['token']
         caller_id = data['callerId']
 
-        self.join_agora_channel(channel_name, token)
-        self.sio.emit('answer_call', {'callerId': caller_id})
+        self.sio.emit('call_accepted', {'callerId': caller_id, 'channelName': channel_name})
         self.in_call = True
         self.sm.get_screen('chat').ids.call_button.text = "Завершить"
         self.current_call_info = {'otherUserId': caller_id}
@@ -426,8 +449,11 @@ class MessengerApp(App):
         if not self.in_call:
             return
 
-        if self.current_call_info.get('otherUserId'):
-            self.sio.emit('hang_up', {'otherUserId': self.current_call_info['otherUserId']})
+        if self.current_call_info.get('otherUserId') and self.current_call_info.get('channelName'):
+            self.sio.emit('call_ended', {
+                'otherUserId': self.current_call_info['otherUserId'],
+                'channelName': self.current_call_info['channelName']
+            })
 
         if self.rtc_engine:
             self.rtc_engine.leaveChannel()
@@ -442,10 +468,34 @@ class MessengerApp(App):
         self.in_call = False
         self.current_call_info = {}
 
+    def handle_call_answered(self, data):
+        channel_name = data.get('channelName')
+        token = data.get('token')
+        other_user_id = data.get('otherUserId')
+
+        if not channel_name or not token or not other_user_id:
+            self.show_popup("Ошибка звонка", "Недостаточно данных для присоединения к звонку.")
+            self.hang_up()
+            return
+
+        self.join_agora_channel(channel_name, token)
+        self.in_call = True
+        self.sm.get_screen('chat').ids.call_button.text = "Завершить"
+        self.current_call_info = {'otherUserId': other_user_id, 'channelName': channel_name}
+        self.show_popup("Звонок", f"Звонок с {other_user_id} начат.")
+
     def decline_call(self, data):
         if self.incoming_call_popup:
             self.incoming_call_popup.dismiss()
             self.incoming_call_popup = None
+
+        caller_id = data['callerId']
+        channel_name = data['channelName']
+
+        self.sio.emit('call_declined', {'callerId': caller_id, 'channelName': channel_name})
+        self.sm.get_screen('chat').ids.call_button.text = "Звонок"
+        self.in_call = False
+        self.current_call_info = {}
 
     def join_agora_channel(self, channel_name, token):
         try:
