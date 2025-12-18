@@ -7,3 +7,4 @@ psycopg2-binary
 gunicorn==22.0.0
 eventlet
 agora-token-builder
+flask_migrate
