@@ -87,10 +87,18 @@ class MessengerApp(App):
 
     def login(self, username, password):
         def on_login_success(result):
-            self.token = result.get('token')
-            self.connect_socketio()
-            self.sm.current = 'chat'
-        self._api_request('/login', method='POST', body={'username': username, 'password': password}, on_success=on_login_success)
+            app.token = result['token']
+            app.user_id = result['user']['id']
+            app.username = result['user']['username']
+            app.connect_socketio()
+            app.load_chats()
+
+        def on_login_failure(error):
+            print(f"Login failed: {error}")
+            # Optionally, display an error message to the user
+
+        self._api_request('/auth/login', method='POST', body={'username': username, 'password': password},
+                          on_success=on_login_success, on_failure=on_login_failure)
 
     def register(self, username, password):
         def on_register_success(result):
@@ -124,7 +132,12 @@ class MessengerApp(App):
                     if chat_screen:
                         print(f"chat_screen: {chat_screen}")
                         print(f"chat_screen.ids: {chat_screen.ids}")
-                        # self.sm.current = 'chat' # This line is moved to on_kv_post in messenger.kv
+
+                        def switch_to_chat_screen(dt):
+                            self.sm.current = 'chat'
+                            self.on_chat_screen_kv_post()
+
+                        Clock.schedule_once(switch_to_chat_screen, 0)
                         self.update_chat_list_display(chats, online_ids)
                     else:
                         print("Error: 'chat' screen not found.")

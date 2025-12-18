@@ -48,6 +48,11 @@ app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL or 'sqlite:///' + os.path.j
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
+
+with app.app_context():
+    db.create_all()
+
+migrate = Migrate(app, db)
 socketio = SocketIO(app)
 
 online_users = {} # {user_id: sid}
@@ -600,6 +605,4 @@ def handle_call_ended(data):
 
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
