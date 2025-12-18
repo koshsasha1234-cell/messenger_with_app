@@ -9,12 +9,17 @@ from flask_socketio import SocketIO, join_room, leave_room, send, emit
 from flask import request
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
-import os
 import jwt
 from datetime import datetime, timedelta
 from functools import wraps
 from agora_token_builder import RtcTokenBuilder
 import time
+
+# Настройка пути к базе данных
+basedir = os.path.abspath(os.path.dirname(__file__))
+UPLOAD_FOLDER = os.path.join(basedir, 'uploads')
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
 
 def generate_agora_token(channel_name, uid, role=1):
     app_id = "96619c27fbeb4332b25e1413e8f3ce9f"
@@ -31,9 +36,6 @@ def generate_agora_token(channel_name, uid, role=1):
 
 app = Flask(__name__, static_url_path='/uploads', static_folder=UPLOAD_FOLDER)
 
-UPLOAD_FOLDER = os.path.join(basedir, 'uploads')
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['SECRET_KEY'] = 'secret!'
 # Настройка пути к базе данных
