@@ -29,9 +29,9 @@ def generate_agora_token(channel_name, uid, role=1):
     token = RtcTokenBuilder.buildTokenWithUid(app_id, app_certificate, channel_name, uid, role, privilege_expired_ts)
     return token
 
-app = Flask(__name__, static_url_path='/uploads', static_folder='uploads')
+app = Flask(__name__, static_url_path='/uploads', static_folder=UPLOAD_FOLDER)
 
-UPLOAD_FOLDER = 'uploads'
+UPLOAD_FOLDER = os.path.join(basedir, 'uploads')
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER

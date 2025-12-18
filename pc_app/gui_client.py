@@ -106,6 +106,16 @@ class MessengerApp:
         chat_frame = tk.Frame(main_frame, bg=self.BG_COLOR)
         chat_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
+        # Top info frame for username and call button
+        self.top_info_frame = tk.Frame(chat_frame, bg=self.BG_COLOR)
+        self.top_info_frame.pack(side=tk.TOP, fill=tk.X, pady=5)
+
+        self.username_label = tk.Label(self.top_info_frame, text="", fg=self.TEXT_COLOR, bg=self.BG_COLOR, font=('Arial', 12, 'bold'))
+        self.username_label.pack(side=tk.LEFT, padx=5)
+
+        self.call_button = tk.Button(self.top_info_frame, text="📞", command=self.start_call, bg=self.PRIMARY_COLOR, fg=self.TEXT_COLOR, relief=tk.FLAT)
+        self.call_button.pack(side=tk.RIGHT, padx=5)
+
         self.chat_window = scrolledtext.ScrolledText(chat_frame, state='disabled', bg=self.SECONDARY_COLOR, fg=self.TEXT_COLOR, insertbackground=self.TEXT_COLOR)
         self.chat_window.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.chat_window.tag_config('sent', justify='right', background='#4f545c') # Darker sent bubble
@@ -120,9 +130,6 @@ class MessengerApp:
         self.send_button.pack(side=tk.RIGHT)
         self.record_button = tk.Button(message_frame, text="Запись", command=self.toggle_recording)
         self.record_button.pack(side=tk.RIGHT, padx=5)
-
-        self.call_button = tk.Button(message_frame, text="📞", command=self.start_call, bg=self.PRIMARY_COLOR, fg=self.TEXT_COLOR, relief=tk.FLAT)
-        self.call_button.pack(side=tk.RIGHT)
 
         self.is_recording = False
         self.audio_frames = []
@@ -155,6 +162,8 @@ class MessengerApp:
         if selection:
             index = selection[0]
             self.selected_chat = self.chats[index]
+            self.current_chat_username = self.selected_chat['with_user']['username']
+            self.username_label.config(text=f"Чат с: {self.current_chat_username}")
             self.load_messages()
 
     def load_messages(self):
@@ -318,7 +327,9 @@ class MessengerApp:
     def play_audio(self, url):
         try:
             full_url = f'{BASE_URL}{url}'
+            print(f"Attempting to download audio from: {full_url}")
             response = requests.get(full_url, stream=True)
+            print(f"Audio download response status: {response.status_code}")
             if response.status_code == 200:
                 # Save to a temporary file before playing
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp_file:
@@ -407,6 +418,14 @@ class MessengerApp:
             self.hang_up()
             return
 
+        if not hasattr(self, 'rtc_engine') or self.rtc_engine is None:
+            self.rtc_engine = agorartc.createRtcEngineBridge()
+            self.event_handler = self.AgoraEventHandler(self)
+            self.rtc_engine.initEventHandler(self.event_handler)
+            if self.rtc_engine.initialize(AGORA_APP_ID, None, agorartc.AREA_CODE_GLOB & 0xFFFFFFFF) != 0:
+                messagebox.showerror("Ошибка Agora", "Не удалось инициализировать Agora RTC Engine.")
+                return
+
         target_user = self.selected_chat['with_user']
         channel_name = f"chat_{self.selected_chat['chat_id']}"
 
@@ -434,6 +453,14 @@ class MessengerApp:
         if self.incoming_call_window:
             self.incoming_call_window.destroy()
             self.incoming_call_window = None
+
+        if not hasattr(self, 'rtc_engine') or self.rtc_engine is None:
+            self.rtc_engine = agorartc.createRtcEngineBridge()
+            self.event_handler = self.AgoraEventHandler(self)
+            self.rtc_engine.initEventHandler(self.event_handler)
+            if self.rtc_engine.initialize(AGORA_APP_ID, None, agorartc.AREA_CODE_GLOB & 0xFFFFFFFF) != 0:
+                messagebox.showerror("Ошибка Agora", "Не удалось инициализировать Agora RTC Engine.")
+                return
 
         channel_name = data['channelName']
         token = data['token']
