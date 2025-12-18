@@ -111,7 +111,6 @@
             RecycleView:
                 id: chats_rv
                 viewclass: 'SelectableButton'
-                data: [{'text': chat['with_user']['username'], 'index': i, 'on_press': lambda: app.select_chat(i)} for i, chat in enumerate(root.chats_list)]
                 RecycleBoxLayout:
                     default_size: None, dp(56)
                     default_size_hint: 1, None
@@ -119,9 +118,28 @@
                     height: self.minimum_height
                     orientation: 'vertical'
 
+
+
+
         # Right panel for messages
         BoxLayout:
             orientation: 'vertical'
+
+            BoxLayout:
+                id: top_chat_info_bar
+                size_hint_y: 0.1
+                Label:
+                    id: current_chat_username_label
+                    text: ''
+                    font_size: '20sp'
+                    halign: 'left'
+                    text_size: self.width, None
+                Button:
+                    id: call_button
+                    text: 'Звонок'
+                    on_press: app.start_call()
+                    size_hint_x: None
+                    width: '100dp'
 
             RecycleView:
                 id: messages_rv
@@ -138,6 +156,7 @@
                 TextInput:
                     id: message_input
                     hint_text: 'Введите сообщение...'
+                    multiline: False
                     size_hint_x: 0.5
                 Button:
                     text: 'Отправить'
@@ -148,8 +167,3 @@
                     text: 'Запись'
                     on_press: app.toggle_recording()
                     size_hint_x: 0.17
-                Button:
-                    id: call_button
-                    text: 'Звонок'
-                    on_press: app.start_call()
-                    size_hint_x: 0.16

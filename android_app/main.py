@@ -1,4 +1,5 @@
 from kivy.app import App
+from kivy.clock import Clock
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.properties import StringProperty, ListProperty, BooleanProperty, NumericProperty, ObjectProperty
 from kivy.uix.popup import Popup
@@ -99,20 +100,32 @@ class MessengerApp(App):
     def load_chats(self):
         def on_online_users_loaded(online_ids):
             def on_chats_loaded(chats):
-                chat_screen = self.sm.get_screen('chat')
-                chat_screen.chats_list = chats
-                data = []
-                for i, chat in enumerate(chats):
-                    user = chat['with_user']
-                    status = " (в сети)" if user['id'] in online_ids else ""
-                    data.append({'text': f"{user['username']}{status}", 'on_press': lambda i=i: self.select_chat(i)})
-                chat_screen.ids.chats_rv.data = data
+                try:
+                    chat_screen = self.sm.get_screen('chat')
+                    if chat_screen:
+                        print(f"chat_screen: {chat_screen}")
+                        print(f"chat_screen.ids: {chat_screen.ids}")
+                        self.sm.current = 'chat' # Ensure chat screen is current to populate ids
+                        chat_screen.chats_list = chats
+                        data = []
+                        for i, chat in enumerate(chats):
+                            user = chat['with_user']
+                            status = " (в сети)" if user['id'] in online_ids else ""
+                            data.append({'text': f"{user['username']}{status}", 'on_press': lambda i=i: self.select_chat(i)})
+                        chat_screen.ids.chats_rv.data = data
+                        chat_screen.ids.chats_rv.refresh_from_data()
+                    else:
+                        print("Error: 'chat' screen not found.")
+                except Exception as e:
+                    print(f"Error in on_chats_loaded: {e}")
             self._api_request('/chats', on_success=on_chats_loaded)
         self._api_request('/users/online', on_success=on_online_users_loaded)
 
     def select_chat(self, index):
         chat_screen = self.sm.get_screen('chat')
         self.selected_chat = chat_screen.chats_list[index]
+        chat_screen.ids.current_chat_username_label.text = f"Чат с: {self.selected_chat['with_user']['username']}"
+
         self.load_messages()
 
     def load_messages(self):
@@ -436,10 +449,20 @@ class MessengerApp(App):
 
     def join_agora_channel(self, channel_name, token):
         try:
+            if self.rtc_engine:
+                self.rtc_engine.leaveChannel()
+                self.rtc_engine.release()
+                self.rtc_engine = None
+
             if platform == 'android':
                 request_permissions([Permission.RECORD_AUDIO])
 
-            self.rtc_engine = agorartc.createRtcEngineBridge()
+            try:
+                self.rtc_engine = agorartc.createRtcEngineBridge()
+            except Exception as e:
+                self.show_popup("Agora Error", f"Ошибка создания RTC Engine: {e}")
+                self.hang_up()
+                return
             self.event_handler = self.AgoraEventHandler(self)
             self.rtc_engine.initEventHandler(self.event_handler)
 
